@@ -7,10 +7,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 import os
+import sys
+
+import channels.layers
+import channels_redis.core
 import environ
 from abc import ABC
 from datetime import timedelta
 from pathlib import Path
+
 from djongo.base import DatabaseWrapper
 from djongo.operations import DatabaseOperations
 
@@ -20,6 +25,10 @@ class PatchedDatabaseOperations(DatabaseOperations, ABC):
     @staticmethod
     def conditional_expression_supported_in_where_clause(expression):
         return False
+
+    def date_trunc_sql(self, lookup_type, field_name):
+        # https://github.com/nesdis/djongo/issues/343
+        return "EXTRACT(%s FROM %s)" % (lookup_type, field_name)
 
 
 DatabaseWrapper.ops_class = PatchedDatabaseOperations
@@ -39,7 +48,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
-MONGO_URI = os.getenv('MONGO_URI')
+BACKEND_DOMAIN = os.getenv('BACKEND_DOMAIN')
+# DigitalOcean MONGO_URI
+MONGO_URI = 'mongodb+srv://doadmin:9dl2gm8073J16yUq@db-mongodb-social-reading-815ddadc.mongo.ondigitalocean.com/admin?authSource=admin&replicaSet=db-mongodb-social-reading&tls=true&tlsCAFile=app/ca-certificate.cer'
+
+# MONGO_URI = os.getenv('MONGO_URI')
 SOCIAL_SECRET = os.getenv('SOCIAL_SECRET')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -72,7 +85,10 @@ INSTALLED_APPS = [
     'save',
     'library',
     'sentence',
-    # 'notifications',
+    'drf_api_logger',
+    'channels',
+    'chat',
+    'notification',
     # 'allauth',
     # 'allauth.account',
     # 'allauth.socialaccount',
@@ -95,6 +111,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'social_django.middleware.SocialAuthExceptionMiddleware',
+    'drf_api_logger.middleware.api_logger_middleware.APILoggerMiddleware',
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -122,16 +139,27 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'app.wsgi.application'
 
+ASGI_APPLICATION = 'app.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+}
+
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
 
 DATABASES = {
     'default': {
         'ENGINE': 'djongo',
-        'NAME': os.getenv('DB_NAME'),
+        'NAME': 'social_reading_db',
         'CLIENT': {
-            'host': os.getenv('MONGO_URI')
-        }
+            'host': MONGO_URI
+        },
     }
 }
 
@@ -359,3 +387,26 @@ SWAGGER_SETTINGS = {
 }
 
 DOMAIN = os.getenv('DOMAIN')
+
+DRF_API_LOGGER_SIGNAL = True
+DRF_API_LOGGER_TIMEDELTA = 240
+DRF_API_LOGGER_DATABASE = True
+
+PYTESSERACT_LANGUAGES = (
+    ('eng', 'English'),
+    ('hye', 'Armenian'),
+    ('rus', 'Russian'),
+    ('fra', 'French'),
+    ('hin', 'Hindi'),
+)
+
+# AWS S3 STORAGE
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_SIGNATURE_VERSION = 's3v4'
+AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION_NAME')
+AWS_S3_FILE_OVERWRITE = False
+AWS_DEFAULT_ACL = None
+AWS_S3_VERIFY = True
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
